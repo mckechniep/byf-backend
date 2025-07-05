@@ -1,4 +1,4 @@
-// controllers/userController.js - Updated with proper error handling
+// controllers/userController.js - Enhanced with proper validation sync
 import User from "../models/userModel.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
@@ -12,12 +12,12 @@ dotenv.config();
  * @route POST /api/users/signup
  * @access Public
  * 
- * NOTE: This now uses validation middleware, so req.body is pre-validated
+ * NOTE: req.body is pre-validated by validateInput('signup') middleware
  */
 export const signup = catchAsync(async (req, res, next) => {
     const { username, email, password } = req.body;
 
-    // Check if user already exists (more specific error messages)
+    // Check if user already exists (validation ensures these fields are present and valid)
     const existingUser = await User.findOne({ 
         $or: [{ username }, { email }] 
     });
@@ -64,6 +64,8 @@ export const signup = catchAsync(async (req, res, next) => {
  * @desc  Sign in user
  * @route POST /api/users/signin
  * @access Public
+ * 
+ * NOTE: req.body is pre-validated by validateInput('signin') middleware
  */
 export const signin = catchAsync(async (req, res, next) => {
     const { username, password } = req.body;
@@ -120,6 +122,8 @@ export const signin = catchAsync(async (req, res, next) => {
  * @desc  "Step Into The Cage" - Fan Becomes Fighter
  * @route POST /api/users/become-fighter
  * @access Private
+ * 
+ * NOTE: No body validation needed, only auth required
  */
 export const stepIntoTheCage = catchAsync(async (req, res, next) => {
     const userId = req.user.id;
@@ -194,24 +198,28 @@ export const getMyProfile = catchAsync(async (req, res, next) => {
  * @desc  Update the profile of the logged-in user
  * @route PATCH /api/users/me
  * @access Private
+ * 
+ * NOTE: req.body is pre-validated by validateInput('updateProfile') middleware
  */
 export const updateMyProfile = catchAsync(async (req, res, next) => {
     const userId = req.user.id;
-    const updates = req.body; // Already validated by middleware
+    const updates = req.body; // Already validated and sanitized
 
     // Check if trying to update username/email that already exists
     if (updates.username || updates.email) {
-        const existingUser = await User.findOne({
-            $and: [
-                { _id: { $ne: userId } }, // Exclude current user
-                {
-                    $or: [
-                        updates.username ? { username: updates.username } : {},
-                        updates.email ? { email: updates.email } : {}
-                    ].filter(obj => Object.keys(obj).length > 0)
-                }
-            ]
-        });
+        const query = {
+            _id: { $ne: userId }, // Exclude current user
+            $or: []
+        };
+
+        if (updates.username) {
+            query.$or.push({ username: updates.username });
+        }
+        if (updates.email) {
+            query.$or.push({ email: updates.email });
+        }
+
+        const existingUser = await User.findOne(query);
 
         if (existingUser) {
             const field = existingUser.username === updates.username ? 'username' : 'email';
@@ -255,10 +263,12 @@ export const updateMyProfile = catchAsync(async (req, res, next) => {
  * @desc  Update fighter-specific details
  * @route PATCH /api/users/me/fighter
  * @access Private (Fighters only)
+ * 
+ * NOTE: req.body is pre-validated by validateInput('updateFighterProfile') middleware
  */
 export const updateFighterProfile = catchAsync(async (req, res, next) => {
     const userId = req.user.id;
-    const updates = req.body; // Already validated by middleware
+    const updates = req.body; // Already validated and sanitized
 
     const user = await User.findById(userId);
 
@@ -300,14 +310,16 @@ export const updateFighterProfile = catchAsync(async (req, res, next) => {
 
 /**
  * @desc  Get all fighters with optional search filters
- * @route GET /api/fighters
+ * @route GET /api/users/fighters
  * @access Public
+ * 
+ * NOTE: req.query is pre-validated by validateInput('fighterQuery', 'query') middleware
  */
 export const getAllFighters = catchAsync(async (req, res, next) => {
-    // Build query object
+    // Build query object - validation middleware ensures all values are properly formatted
     let query = { isFighter: true };
     
-    // Extract query parameters
+    // Extract validated query parameters
     const { 
         weight, 
         height, 
@@ -320,29 +332,13 @@ export const getAllFighters = catchAsync(async (req, res, next) => {
         sort = '-createdAt'
     } = req.query;
 
-    // Apply filters
+    // Apply filters (validation middleware ensures these are valid numbers/strings)
     if (weight) {
-        const weightNum = parseInt(weight);
-        if (isNaN(weightNum)) {
-            return next(new AppError(
-                'Weight must be a valid number',
-                400,
-                'INVALID_WEIGHT'
-            ));
-        }
-        query.weight = weightNum;
+        query.weight = weight;
     }
 
     if (height) {
-        const heightNum = parseInt(height);
-        if (isNaN(heightNum)) {
-            return next(new AppError(
-                'Height must be a valid number',
-                400,
-                'INVALID_HEIGHT'
-            ));
-        }
-        query.height = heightNum;
+        query.height = height;
     }
 
     if (styles) {
@@ -362,7 +358,7 @@ export const getAllFighters = catchAsync(async (req, res, next) => {
         query["location.country"] = new RegExp(country, "i");
     }
 
-    // Pagination
+    // Pagination (validation middleware ensures these are valid numbers)
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
@@ -393,3 +389,34 @@ export const getAllFighters = catchAsync(async (req, res, next) => {
         }
     });
 });
+
+/**
+ * FUTURE IMPLEMENTATIONS
+ * These functions are ready for when betting and social features are added
+ */
+
+/**
+ * @desc  Place a bet on a fighter
+ * @route POST /api/users/bets
+ * @access Private
+ * 
+ * NOTE: Ready for implementation when betting system is built
+ */
+// export const placeBet = catchAsync(async (req, res, next) => {
+//     const userId = req.user.id;
+//     const { fighterId, amount } = req.body; // Pre-validated by validateInput('placeBet')
+    
+//     // Implementation would go here
+// });
+
+/**
+ * @desc  Add a comment/review
+ * @route POST /api/users/comments
+ * @access Private
+ */
+// export const addComment = catchAsync(async (req, res, next) => {
+//     const userId = req.user.id;
+//     const { text } = req.body; // Pre-validated by validateInput('addComment')
+    
+//     // Implementation would go here
+// });
