@@ -1,247 +1,395 @@
+// controllers/userController.js - Updated with proper error handling
 import User from "../models/userModel.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { AppError, catchAsync } from "../middleware/errorHandler.js";
 
 dotenv.config();
 
 /**
  * @desc  Sign up a new user (default: fan)
+ * @route POST /api/users/signup
+ * @access Public
+ * 
+ * NOTE: This now uses validation middleware, so req.body is pre-validated
  */
-export const signup = async (req, res) => {
-    try {
-        const { username, email, password } = req.body;
+export const signup = catchAsync(async (req, res, next) => {
+    const { username, email, password } = req.body;
 
-        if (!username || !email || !password) {
-            return res.status(400).json({ error: "All fields are required." });
-        }
-
-        const existingUser = await User.findOne({ $or: [{ username }, { email }] });
-        if (existingUser) {
-            return res.status(409).json({ error: "Username or email is already registered." });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 12);
-        const newUser = await User.create({ username, email, password: hashedPassword });
-
-        res.status(201).json({ message: "User registered successfully!", userId: newUser._id });
-    } catch (error) {
-        console.error("Signup error:", error);
-        res.status(500).json({ error: "Internal server error" });
+    // Check if user already exists (more specific error messages)
+    const existingUser = await User.findOne({ 
+        $or: [{ username }, { email }] 
+    });
+    
+    if (existingUser) {
+        const field = existingUser.username === username ? 'username' : 'email';
+        return next(new AppError(
+            `A user with this ${field} already exists`,
+            409,
+            'DUPLICATE_USER'
+        ));
     }
-};
+
+    // Hash password with high salt rounds for security
+    const hashedPassword = await bcrypt.hash(password, 12);
+    
+    // Create new user
+    const newUser = await User.create({ 
+        username, 
+        email, 
+        password: hashedPassword 
+    });
+
+    // Don't send password in response
+    const userResponse = {
+        _id: newUser._id,
+        username: newUser.username,
+        email: newUser.email,
+        role: newUser.role,
+        isFighter: newUser.isFighter,
+        createdAt: newUser.createdAt
+    };
+
+    res.status(201).json({ 
+        success: true,
+        message: "User registered successfully!",
+        data: {
+            user: userResponse
+        }
+    });
+});
 
 /**
- * @desc  Sign in
+ * @desc  Sign in user
+ * @route POST /api/users/signin
+ * @access Public
  */
-export const signin = async (req, res) => {
-    try {
-        const { username, password } = req.body;
+export const signin = catchAsync(async (req, res, next) => {
+    const { username, password } = req.body;
 
-        if (!username || !password) {
-            return res.status(400).json({ error: "Username and password are required." });
-        }
-
-        const user = await User.findOne({ username });
-        if (!user) {
-            return res.status(404).json({ error: "User not found." });
-        }
-
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ error: "Invalid credentials." });
-        }
-
-        // Generates JWT token
-        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1h" });
-
-        res.status(200).json({ message: "User signed in successfully", token, user });
-    } catch (error) {
-        console.error("Signin error:", error);
-        res.status(500).json({ error: "Internal server error" });
+    // Find user and include password for comparison
+    const user = await User.findOne({ username }).select('+password');
+    
+    if (!user) {
+        return next(new AppError(
+            'Invalid username or password',
+            401,
+            'INVALID_CREDENTIALS'
+        ));
     }
-};
+
+    // Check password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    if (!isPasswordValid) {
+        return next(new AppError(
+            'Invalid username or password',
+            401,
+            'INVALID_CREDENTIALS'
+        ));
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+        { 
+            id: user._id, 
+            role: user.role,
+            username: user.username
+        }, 
+        process.env.JWT_SECRET, 
+        { 
+            expiresIn: process.env.JWT_EXPIRES_IN || "24h"
+        }
+    );
+
+    // Remove password from user object
+    user.password = undefined;
+
+    res.status(200).json({ 
+        success: true,
+        message: "Signed in successfully",
+        data: {
+            token,
+            user
+        }
+    });
+});
 
 /**
  * @desc  "Step Into The Cage" - Fan Becomes Fighter
+ * @route POST /api/users/become-fighter
+ * @access Private
  */
-export const stepIntoTheCage = async (req, res) => {
-    try {
-        const userId = req.user.id; 
-        const user = await User.findById(userId);
-
-        if (!user) {
-            return res.status(404).json({ error: "User not found." });
-        }
-
-        if (user.isFighter) {
-            return res.status(400).json({ error: "You are already a fighter!" });
-        }
-
-        user.isFighter = true;
-        user.role = "fighter";
-        await user.save();
-
-        res.status(200).json({ message: "Welcome to the cage! You are now a fighter." });
-    } catch (error) {
-        console.error("Step into the cage error:", error);
-        res.status(500).json({ error: "Internal server error" });
+export const stepIntoTheCage = catchAsync(async (req, res, next) => {
+    const userId = req.user.id;
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+        return next(new AppError(
+            'User not found',
+            404,
+            'USER_NOT_FOUND'
+        ));
     }
-};
 
+    if (user.isFighter) {
+        return next(new AppError(
+            'You are already a fighter!',
+            400,
+            'ALREADY_FIGHTER'
+        ));
+    }
+
+    // Update user to fighter status
+    user.isFighter = true;
+    user.role = "fighter";
+    await user.save();
+
+    res.status(200).json({ 
+        success: true,
+        message: "Welcome to the cage! You are now a fighter.",
+        data: {
+            user: {
+                _id: user._id,
+                username: user.username,
+                role: user.role,
+                isFighter: user.isFighter
+            }
+        }
+    });
+});
 
 /**
  * @desc  Get the profile of the logged-in user
  * @route GET /api/users/me
- * @access Private (Requires Authentication)
+ * @access Private
  */
-export const getMyProfile = async (req, res) => {
-    try {
-        // Get the user ID from the JWT (set by verifyToken middleware)
-        const userId = req.user.id;
+export const getMyProfile = catchAsync(async (req, res, next) => {
+    const userId = req.user.id;
 
-        // Find the user in the database, but exclude the password field for security
-        const user = await User.findById(userId).select("-password");
+    const user = await User.findById(userId)
+        .select("-password")
+        .populate('favoriteFighters', 'username profilePicture record')
+        .populate('challenges');
 
-        // If the user doesn't exist, return an error
-        if (!user) {
-            return res.status(404).json({ error: "User not found." });
-        }
-
-        // Send back the user's profile data
-        res.status(200).json(user);
-    } catch (error) {
-        console.error("Error fetching user profile:", error);
-        res.status(500).json({ error: "Internal server error." });
+    if (!user) {
+        return next(new AppError(
+            'User not found',
+            404,
+            'USER_NOT_FOUND'
+        ));
     }
-};
+
+    res.status(200).json({
+        success: true,
+        data: {
+            user
+        }
+    });
+});
 
 /**
  * @desc  Update the profile of the logged-in user
  * @route PATCH /api/users/me
- * @access Private (Requires Authentication)
+ * @access Private
  */
-export const updateMyProfile = async (req, res) => {
-    try {
-        const userId = req.user.id;
+export const updateMyProfile = catchAsync(async (req, res, next) => {
+    const userId = req.user.id;
+    const updates = req.body; // Already validated by middleware
 
-        // Define allowed fields for updating
-        const allowedUpdates = ["username", "email", "socialLinks"];
-        const updates = {};
-
-        // Loop through req.body and filter for allowed fields
-        Object.keys(req.body).forEach((key) => {
-            if (allowedUpdates.includes(key)) {
-                updates[key] = req.body[key]; // Add valid fields to updates object
-            }
+    // Check if trying to update username/email that already exists
+    if (updates.username || updates.email) {
+        const existingUser = await User.findOne({
+            $and: [
+                { _id: { $ne: userId } }, // Exclude current user
+                {
+                    $or: [
+                        updates.username ? { username: updates.username } : {},
+                        updates.email ? { email: updates.email } : {}
+                    ].filter(obj => Object.keys(obj).length > 0)
+                }
+            ]
         });
 
-        // Ensure at least 1 valid field is provided
-        if (Object.keys(updates).length === 0) {
-            return res.status(400).json({ error: "No valid fields to udpate" })
+        if (existingUser) {
+            const field = existingUser.username === updates.username ? 'username' : 'email';
+            return next(new AppError(
+                `This ${field} is already taken`,
+                409,
+                'DUPLICATE_FIELD'
+            ));
         }
-
-        // Find and update the user, return new version
-        const updatedUser = await User.findByIdAndUpdate(userId, updates, { new: true, select: "-password" }); // { new: true } because findByIdAndUpdate by default returns the old document
-
-        if (!updatedUser) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        res.status(200).json(updatedUser);
-    } catch (error) {
-        console.error("Error updating profile:", error);
-        res.status(500).json({ error: "Internal server error." });
     }
-};
+
+    // Update user
+    const updatedUser = await User.findByIdAndUpdate(
+        userId, 
+        updates, 
+        { 
+            new: true, 
+            runValidators: true,
+            select: "-password" 
+        }
+    );
+
+    if (!updatedUser) {
+        return next(new AppError(
+            'User not found',
+            404,
+            'USER_NOT_FOUND'
+        ));
+    }
+
+    res.status(200).json({
+        success: true,
+        message: "Profile updated successfully",
+        data: {
+            user: updatedUser
+        }
+    });
+});
 
 /**
- * @desc  Update fighter-specific details (Only for users who are fighters)
+ * @desc  Update fighter-specific details
  * @route PATCH /api/users/me/fighter
- * @access Private (Requires Authentication)
+ * @access Private (Fighters only)
  */
-export const updateFighterProfile = async (req, res) => {
-    try {
-        // Get the user ID from JWT
-        const userId = req.user.id;
+export const updateFighterProfile = catchAsync(async (req, res, next) => {
+    const userId = req.user.id;
+    const updates = req.body; // Already validated by middleware
 
-        // Find the user in the database
-        const user = await User.findById(userId);
+    const user = await User.findById(userId);
 
-        // If the user doesn't exist, return an error
-        if (!user) {
-            return res.status(404).json({ error: "User not found." });
-        }
-
-        // Ensure the user is a fighter before allowing updates
-        if (!user.isFighter) {
-            return res.status(403).json({ error: "Only fighters can update fighter details." });
-        }
-
-        // Define the allowed fighter-specific fields
-        const allowedFighterUpdates = ["weight", "height", "styles", "customStyle"];
-        const fighterUpdates = {};
-
-        // Loop through the request body and filter out allowed fields
-        Object.keys(req.body).forEach((key) => {
-            if (allowedFighterUpdates.includes(key)) {
-                fighterUpdates[key] = req.body[key];
-            }
-        });
-
-        // Ensure at least one valid field is provided
-        if (Object.keys(fighterUpdates).length === 0) {
-            return res.status(400).json({ error: "No valid fighter fields to update." });
-        }
-
-        // Update the fighter's profile in the database
-        const updatedFighter = await User.findByIdAndUpdate(userId, fighterUpdates, { new: true, select: "-password" });
-
-        // Return the updated fighter profile
-        res.status(200).json(updatedFighter);
-    } catch (error) {
-        console.error("Error updating fighter profile:", error);
-        res.status(500).json({ error: "Internal server error." });
+    if (!user) {
+        return next(new AppError(
+            'User not found',
+            404,
+            'USER_NOT_FOUND'
+        ));
     }
-};
+
+    if (!user.isFighter) {
+        return next(new AppError(
+            'Only fighters can update fighter details',
+            403,
+            'NOT_FIGHTER'
+        ));
+    }
+
+    // Update fighter profile
+    const updatedFighter = await User.findByIdAndUpdate(
+        userId, 
+        updates, 
+        { 
+            new: true, 
+            runValidators: true,
+            select: "-password" 
+        }
+    );
+
+    res.status(200).json({
+        success: true,
+        message: "Fighter profile updated successfully",
+        data: {
+            user: updatedFighter
+        }
+    });
+});
 
 /**
- * @desc  Get all fighters (with optional search filters)
+ * @desc  Get all fighters with optional search filters
  * @route GET /api/fighters
- * @access Public (Anyone can access)
+ * @access Public
  */
-export const getAllFighters = async (req, res) => {
-    try {
-        // Build a query object for searching
-        let query = { isFighter: true };
+export const getAllFighters = catchAsync(async (req, res, next) => {
+    // Build query object
+    let query = { isFighter: true };
+    
+    // Extract query parameters
+    const { 
+        weight, 
+        height, 
+        styles, 
+        city, 
+        state, 
+        country,
+        page = 1,
+        limit = 10,
+        sort = '-createdAt'
+    } = req.query;
 
-        // Apply filters if they exist in the query parameters
-        if (req.query.weight) {
-            query.weight = req.query.weight;
+    // Apply filters
+    if (weight) {
+        const weightNum = parseInt(weight);
+        if (isNaN(weightNum)) {
+            return next(new AppError(
+                'Weight must be a valid number',
+                400,
+                'INVALID_WEIGHT'
+            ));
         }
-        if (req.query.height) {
-            query.height = req.query.height;
-        }
-        if (req.query.styles) {
-            // Convert styles query into an array for searching (e.g., "Boxing,Muay Thai")
-            query.styles = { $in: req.query.styles.split(",") };
-        }
-        if (req.query.city) {
-            query["location.city"] = new RegExp(req.query.city, "i"); // Case insensitive search
-        }
-        if (req.query.state) {
-            query["location.state"] = new RegExp(req.query.state, "i");
-        }
-        if (req.query.country) {
-            query["location.country"] = new RegExp(req.query.country, "i");
-        }
-
-        // Fetch fighters that match the query, excluding passwords for security
-        const fighters = await User.find(query).select("-password");
-
-        res.status(200).json(fighters);
-    } catch (error) {
-        console.error("Error fetching fighters:", error);
-        res.status(500).json({ error: "Internal server error." });
+        query.weight = weightNum;
     }
-};
+
+    if (height) {
+        const heightNum = parseInt(height);
+        if (isNaN(heightNum)) {
+            return next(new AppError(
+                'Height must be a valid number',
+                400,
+                'INVALID_HEIGHT'
+            ));
+        }
+        query.height = heightNum;
+    }
+
+    if (styles) {
+        const stylesArray = styles.split(',').map(s => s.trim());
+        query.styles = { $in: stylesArray };
+    }
+
+    if (city) {
+        query["location.city"] = new RegExp(city, "i");
+    }
+
+    if (state) {
+        query["location.state"] = new RegExp(state, "i");
+    }
+
+    if (country) {
+        query["location.country"] = new RegExp(country, "i");
+    }
+
+    // Pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Execute query with pagination
+    const fighters = await User.find(query)
+        .select("-password -email")
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNum)
+        .populate('challenges', 'status createdAt');
+
+    // Get total count for pagination
+    const total = await User.countDocuments(query);
+
+    res.status(200).json({
+        success: true,
+        data: {
+            fighters,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                pages: Math.ceil(total / limitNum),
+                hasNext: pageNum < Math.ceil(total / limitNum),
+                hasPrev: pageNum > 1
+            }
+        }
+    });
+});
