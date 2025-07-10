@@ -1,4 +1,4 @@
-// server.js - Updated with security middleware
+// server.js - Updated with challenge routes
 import express from "express";
 import logger from "morgan";
 import mongoose from "mongoose";
@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 // Import route files
 import userRoutes from "./routes/userRoutes.js";
 import fighterRouter from "./routes/fighterRoutes.js";
+import challengeRoutes from "./routes/challengeRoutes.js"; // NEW: Challenge routes
 
 // Import security middleware
 import { corsOptions, generalLimiter, authLimiter } from "./middleware/security.js";
@@ -116,6 +117,7 @@ app.get('/health', (req, res) => {
 
 app.use("/api/users", userRoutes);
 app.use("/api/fighters", fighterRouter);
+app.use("/api/challenges", challengeRoutes); // NEW: Challenge system routes
 
 // ==================== ERROR HANDLING ====================
 
@@ -153,7 +155,8 @@ const server = app.listen(PORT, () => {
     console.log(`   ▶ Health Check: http://localhost:${PORT}/health`);
     console.log('   ▶ Security: Enabled ✅');
     console.log('   ▶ Rate Limiting: Active ✅');
-    console.log('   ▶ Input Validation: Ready ✅\n');
+    console.log('   ▶ Input Validation: Ready ✅');
+    console.log('   ▶ Challenge System: Active ✅\n'); // NEW: Indicate challenge system is ready
 });
 
 // Handle SIGTERM gracefully
