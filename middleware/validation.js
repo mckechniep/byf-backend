@@ -178,6 +178,190 @@ const schemas = {
             'string.max': 'Comment cannot exceed 500 characters',
             'any.required': 'Comment text is required'
         })
+    }),
+
+    // ==================== CHALLENGE VALIDATION SCHEMAS ====================
+
+    // Create new challenge validation
+    createChallenge: Joi.object({
+        challengedId: Joi.string()
+            .pattern(/^[0-9a-fA-F]{24}$/)
+            .required()
+            .messages({
+                'string.pattern.base': 'Invalid fighter ID format',
+                'any.required': 'Challenged fighter ID is required'
+            }),
+        
+        // Fight details (all optional for initial challenge)
+        fightDetails: Joi.object({
+            proposedDate: Joi.date()
+                .min('now')
+                .optional()
+                .messages({
+                    'date.min': 'Proposed date must be in the future'
+                }),
+            location: Joi.string()
+                .trim()
+                .max(200)
+                .optional()
+                .messages({
+                    'string.max': 'Location cannot exceed 200 characters'
+                }),
+            rules: Joi.string()
+                .trim()
+                .max(1000)
+                .optional()
+                .messages({
+                    'string.max': 'Rules cannot exceed 1000 characters'
+                }),
+            weightClass: Joi.string()
+                .valid(
+                    'Flyweight', 'Bantamweight', 'Featherweight', 'Lightweight',
+                    'Welterweight', 'Middleweight', 'Light Heavyweight', 'Heavyweight',
+                    'Catchweight', 'Open Weight'
+                )
+                .optional()
+                .messages({
+                    'any.only': 'Invalid weight class selected'
+                }),
+            stakes: Joi.string()
+                .trim()
+                .max(500)
+                .optional()
+                .messages({
+                    'string.max': 'Stakes description cannot exceed 500 characters'
+                })
+        }).optional(),
+
+        // Initial challenge message
+        message: Joi.string()
+            .trim()
+            .min(10)
+            .max(1000)
+            .required()
+            .messages({
+                'string.min': 'Challenge message must be at least 10 characters',
+                'string.max': 'Challenge message cannot exceed 1000 characters',
+                'any.required': 'Challenge message is required'
+            })
+    }),
+
+    // Accept challenge validation
+    acceptChallenge: Joi.object({
+        responseMessage: Joi.string()
+            .trim()
+            .max(500)
+            .optional()
+            .messages({
+                'string.max': 'Response message cannot exceed 500 characters'
+            })
+    }),
+
+    // Decline challenge validation
+    declineChallenge: Joi.object({
+        responseMessage: Joi.string()
+            .trim()
+            .min(5)
+            .max(500)
+            .optional()
+            .messages({
+                'string.min': 'Please provide a reason for declining (at least 5 characters)',
+                'string.max': 'Response message cannot exceed 500 characters'
+            })
+    }),
+
+    // Cancel challenge validation
+    cancelChallenge: Joi.object({
+        reason: Joi.string()
+            .trim()
+            .max(500)
+            .optional()
+            .messages({
+                'string.max': 'Cancellation reason cannot exceed 500 characters'
+            })
+    }),
+
+    // Update challenge details validation
+    updateChallengeDetails: Joi.object({
+        fightDetails: Joi.object({
+            proposedDate: Joi.date()
+                .min('now')
+                .optional()
+                .messages({
+                    'date.min': 'Proposed date must be in the future'
+                }),
+            location: Joi.string()
+                .trim()
+                .max(200)
+                .optional()
+                .messages({
+                    'string.max': 'Location cannot exceed 200 characters'
+                }),
+            rules: Joi.string()
+                .trim()
+                .max(1000)
+                .optional()
+                .messages({
+                    'string.max': 'Rules cannot exceed 1000 characters'
+                }),
+            weightClass: Joi.string()
+                .valid(
+                    'Flyweight', 'Bantamweight', 'Featherweight', 'Lightweight',
+                    'Welterweight', 'Middleweight', 'Light Heavyweight', 'Heavyweight',
+                    'Catchweight', 'Open Weight'
+                )
+                .optional()
+                .messages({
+                    'any.only': 'Invalid weight class selected'
+                }),
+            stakes: Joi.string()
+                .trim()
+                .max(500)
+                .optional()
+                .messages({
+                    'string.max': 'Stakes description cannot exceed 500 characters'
+                })
+        }).min(1).required().messages({
+            'object.min': 'At least one fight detail must be provided',
+            'any.required': 'Fight details are required'
+        })
+    }),
+
+    // Add message to challenge validation
+    addChallengeMessage: Joi.object({
+        message: Joi.string()
+            .trim()
+            .min(1)
+            .max(1000)
+            .required()
+            .messages({
+                'string.min': 'Message cannot be empty',
+                'string.max': 'Message cannot exceed 1000 characters',
+                'any.required': 'Message is required'
+            })
+    }),
+
+    // Query validation for getting challenges
+    challengeQuery: Joi.object({
+        status: Joi.string()
+            .valid('pending', 'accepted', 'declined', 'completed', 'cancelled')
+            .optional()
+            .messages({
+                'any.only': 'Invalid status filter'
+            }),
+        role: Joi.string()
+            .valid('challenger', 'challenged', 'all')
+            .default('all')
+            .optional()
+            .messages({
+                'any.only': 'Role must be challenger, challenged, or all'
+            }),
+        page: Joi.number().min(1).default(1).optional(),
+        limit: Joi.number().min(1).max(50).default(10).optional(),
+        sort: Joi.string()
+            .valid('createdAt', '-createdAt', 'updatedAt', '-updatedAt', 'status')
+            .default('-updatedAt')
+            .optional()
     })
 };
 
