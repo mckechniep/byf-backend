@@ -362,6 +362,201 @@ const schemas = {
             .valid('createdAt', '-createdAt', 'updatedAt', '-updatedAt', 'status')
             .default('-updatedAt')
             .optional()
+    }),
+
+    // ==================== FIGHT VALIDATION SCHEMAS ====================
+
+    // Create fight from accepted challenge
+    createFightFromChallenge: Joi.object({
+        challengeId: Joi.string()
+            .pattern(/^[0-9a-fA-F]{24}$/)
+            .required()
+            .messages({
+                'string.pattern.base': 'Invalid challenge ID format',
+                'any.required': 'Challenge ID is required'
+            }),
+        fightDetails: Joi.object({
+            scheduledDate: Joi.date()
+                .min('now')
+                .optional()
+                .messages({
+                    'date.min': 'Scheduled date must be in the future'
+                }),
+            venue: Joi.object({
+                name: Joi.string().trim().max(200).optional(),
+                address: Joi.string().trim().max(300).optional(),
+                city: Joi.string().trim().max(100).optional(),
+                state: Joi.string().trim().max(100).optional(),
+                country: Joi.string().trim().max(100).optional()
+            }).optional(),
+            rules: Joi.object({
+                rounds: Joi.number().min(1).max(12).optional(),
+                roundDuration: Joi.number().min(60).max(1800).optional(),
+                format: Joi.string().valid('MMA', 'Boxing', 'Kickboxing', 'Grappling', 'Custom').optional(),
+                customRules: Joi.string().trim().max(1000).optional()
+            }).optional()
+        }).optional()
+    }),
+
+    // Update fight details
+    updateFightDetails: Joi.object({
+        details: Joi.object({
+            scheduledDate: Joi.date()
+                .min('now')
+                .optional()
+                .messages({
+                    'date.min': 'Scheduled date must be in the future'
+                }),
+            venue: Joi.object({
+                name: Joi.string().trim().max(200).optional(),
+                address: Joi.string().trim().max(300).optional(),
+                city: Joi.string().trim().max(100).optional(),
+                state: Joi.string().trim().max(100).optional(),
+                country: Joi.string().trim().max(100).optional()
+            }).optional(),
+            weightClass: Joi.string()
+                .valid(
+                    'Flyweight', 'Bantamweight', 'Featherweight', 'Lightweight',
+                    'Welterweight', 'Middleweight', 'Light Heavyweight', 'Heavyweight',
+                    'Catchweight', 'Open Weight'
+                )
+                .optional(),
+            rules: Joi.object({
+                rounds: Joi.number().min(1).max(12).optional(),
+                roundDuration: Joi.number().min(60).max(1800).optional(),
+                format: Joi.string().valid('MMA', 'Boxing', 'Kickboxing', 'Grappling', 'Custom').optional(),
+                customRules: Joi.string().trim().max(1000).optional()
+            }).optional()
+        }).min(1).required().messages({
+            'object.min': 'At least one detail must be provided',
+            'any.required': 'Fight details are required'
+        })
+    }),
+
+    // Record fight result
+    recordFightResult: Joi.object({
+        winnerId: Joi.string()
+            .pattern(/^[0-9a-fA-F]{24}$/)
+            .when('method', {
+                is: Joi.valid('No Contest', 'Draw'),
+                then: Joi.optional(),
+                otherwise: Joi.required()
+            })
+            .messages({
+                'string.pattern.base': 'Invalid winner ID format',
+                'any.required': 'Winner ID is required for this outcome'
+            }),
+        method: Joi.string()
+            .valid('KO', 'TKO', 'Submission', 'Decision', 'DQ', 'No Contest', 'Draw')
+            .required()
+            .messages({
+                'any.only': 'Invalid fight outcome method',
+                'any.required': 'Fight outcome method is required'
+            }),
+        details: Joi.object({
+            methodDetails: Joi.string().trim().max(500).optional(),
+            round: Joi.number().min(1).max(12).optional(),
+            time: Joi.string().pattern(/^[0-9]{1,2}:[0-9]{2}$/).optional().messages({
+                'string.pattern.base': 'Time must be in format MM:SS'
+            })
+        }).optional()
+    }),
+
+    // Cancel fight
+    cancelFight: Joi.object({
+        reason: Joi.string()
+            .trim()
+            .max(500)
+            .optional()
+            .messages({
+                'string.max': 'Cancellation reason cannot exceed 500 characters'
+            })
+    }),
+
+    // Postpone fight
+    postponeFight: Joi.object({
+        newDate: Joi.date()
+            .min('now')
+            .required()
+            .messages({
+                'date.min': 'New date must be in the future',
+                'any.required': 'New date is required'
+            }),
+        reason: Joi.string()
+            .trim()
+            .max(500)
+            .optional()
+            .messages({
+                'string.max': 'Postponement reason cannot exceed 500 characters'
+            })
+    }),
+
+    // Add fight statistics
+    addFightStats: Joi.object({
+        stats: Joi.array()
+            .items(Joi.object({
+                fighter: Joi.string()
+                    .pattern(/^[0-9a-fA-F]{24}$/)
+                    .required()
+                    .messages({
+                        'string.pattern.base': 'Invalid fighter ID format',
+                        'any.required': 'Fighter ID is required'
+                    }),
+                strikes: Joi.object({
+                    landed: Joi.number().min(0).default(0),
+                    thrown: Joi.number().min(0).default(0)
+                }).optional(),
+                takedowns: Joi.object({
+                    successful: Joi.number().min(0).default(0),
+                    attempted: Joi.number().min(0).default(0)
+                }).optional(),
+                submissions: Joi.object({
+                    attempted: Joi.number().min(0).default(0)
+                }).optional(),
+                controlTime: Joi.number().min(0).default(0)
+            }))
+            .min(1)
+            .max(2)
+            .required()
+            .messages({
+                'array.min': 'At least one fighter stat is required',
+                'array.max': 'Maximum 2 fighter stats allowed',
+                'any.required': 'Fight statistics are required'
+            })
+    }),
+
+    // Verify fight result
+    verifyFight: Joi.object({
+        notes: Joi.string()
+            .trim()
+            .max(1000)
+            .optional()
+            .messages({
+                'string.max': 'Verification notes cannot exceed 1000 characters'
+            })
+    }),
+
+    // Fight query parameters
+    fightQuery: Joi.object({
+        status: Joi.string()
+            .valid('scheduled', 'in-progress', 'completed', 'cancelled', 'postponed')
+            .optional(),
+        page: Joi.number().min(1).default(1).optional(),
+        limit: Joi.number().min(1).max(50).default(10).optional(),
+        sort: Joi.string()
+            .valid('createdAt', '-createdAt', 'scheduledDate', '-scheduledDate', 'actualDate', '-actualDate')
+            .default('-createdAt')
+            .optional()
+    }),
+
+    // Upcoming fights query
+    upcomingFightsQuery: Joi.object({
+        limit: Joi.number().min(1).max(50).default(10).optional()
+    }),
+
+    // Recent results query
+    recentResultsQuery: Joi.object({
+        limit: Joi.number().min(1).max(50).default(10).optional()
     })
 };
 

@@ -10,6 +10,7 @@ import dotenv from "dotenv";
 import userRoutes from "./routes/userRoutes.js";
 import fighterRouter from "./routes/fighterRoutes.js";
 import challengeRoutes from "./routes/challengeRoutes.js"; // NEW: Challenge routes
+import fightRoutes from "./routes/fightRoutes.js"; // NEW: Fight routes
 
 // Import security middleware
 import { corsOptions, generalLimiter, authLimiter } from "./middleware/security.js";
